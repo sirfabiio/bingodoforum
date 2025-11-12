@@ -3,10 +3,6 @@ import BingoGrid from '../components/BingoGrid';
 import { supabase } from '../supabaseClient';
 import { getBoard } from '../lib/bingo';
 import { checkLines } from '../lib/layout';
-import { createFFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile } from '@ffmpeg/util';
-
-const ffmpeg = createFFmpeg({ log: false });
 
 type Tile = {
   id: string;
@@ -59,7 +55,6 @@ export default function Board() {
     const alreadyBingo = existing?.some((a) => a.type === 'bingo');
 
     if (hasLine) {
-      // vê se o grupo já registou
       const exists = existing?.find(
         (a) => a.group_id === groupId && a.type === 'line'
       );
@@ -90,45 +85,69 @@ export default function Board() {
     }
   }
 
+  // -----------------------------------------
+  // FUNÇÃO `upload()` CORRIGIDA COMPLETAMENTE
+  // -----------------------------------------
+
   async function upload(id: string, file: File) {
     try {
       let path = '';
 
+      // ------------------------------
+      // 1. Upload directo de IMAGENS
+      // ------------------------------
       if (file.type.startsWith('image/')) {
         const ext = file.name.split('.').pop();
         path = `${groupId}/${id}-${Date.now()}.${ext}`;
-        const { error } = await supabase.storage.from('uploads').upload(path, file);
+
+        const { error } = await supabase.storage.from('uploads')
+          .upload(path, file);
+
         if (error) throw error;
-      } else if (file.type.startsWith('video/')) {
-        if (!ffmpeg.isLoaded()) await ffmpeg.load();
+      }
 
-        const inputName = 'input.mp4';
-        const outputName = 'output.mp4';
+      // ------------------------------
+      // 2. Upload de VÍDEO com compressão pela API /api/compress
+      // ------------------------------
+      else if (file.type.startsWith('video/')) {
 
-        ffmpeg.FS('writeFile', inputName, await fetchFile(file));
-        await ffmpeg.run(
-          '-i', inputName,
-          '-vf', 'scale=-2:720',
-          '-c:v', 'libx264',
-          '-crf', '28',
-          '-preset', 'ultrafast',
-          '-c:a', 'aac',
-          '-b:a', '128k',
-          outputName
-        );
+        // Converter vídeo → Base64
+        const base64 = await fileToBase64(file);
 
-        const data = ffmpeg.FS('readFile', outputName);
-        const compressedBlob = new Blob([data.buffer], { type: 'video/mp4' });
-        const compressedFile = new File([compressedBlob], `${Date.now()}.mp4`, { type: 'video/mp4' });
+        // Enviar para o servidor Vercel para compressão
+        const response = await fetch('/api/compress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video: base64.replace(/^data:.*;base64,/, ''),
+            groupId,
+            tileId: id
+          })
+        });
 
-        path = `${groupId}/${id}-${Date.now()}.mp4`;
-        const { error } = await supabase.storage.from('uploads').upload(path, compressedFile);
-        if (error) throw error;
-      } else {
+        const result = await response.json();
+
+        if (!response.ok || !result.filePath) {
+          console.error(result);
+          alert('Erro ao comprimir vídeo.');
+          return;
+        }
+
+        // Caminho devolvido pela API
+        path = result.filePath;
+      }
+
+      // ------------------------------
+      // 3. Tipo inválido
+      // ------------------------------
+      else {
         alert('Tipo de ficheiro não suportado.');
         return;
       }
 
+      // ------------------------------
+      // 4. Actualizar progresso
+      // ------------------------------
       await supabase
         .from('progress')
         .update({ file_path: path, completed: true })
@@ -140,6 +159,19 @@ export default function Board() {
       alert('Erro ao enviar ficheiro.');
     }
   }
+
+  // Função utilitária para converter vídeo → Base64
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // -----------------------------------------
+  // RENDER
+  // -----------------------------------------
 
   const doneCount = useMemo(() => tiles.filter((t) => t.file_path).length, [tiles]);
 
