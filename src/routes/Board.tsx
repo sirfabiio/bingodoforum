@@ -107,7 +107,8 @@ export default function Board() {
       video.onloadedmetadata = resolve;
     });
 
-    const stream = video.captureStream();
+    const stream = (video as any).captureStream();
+
     const recorder = new MediaRecorder(stream, {
       mimeType: "video/webm;codecs=vp9",
       videoBitsPerSecond: 500_000 // 0.5 Mbps = compressão forte
