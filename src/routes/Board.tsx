@@ -102,6 +102,8 @@ export default function Board() {
 
     const video = document.createElement("video");
     video.src = URL.createObjectURL(file);
+    video.muted = true;
+    video.play();
 
     await new Promise(resolve => {
       video.onloadedmetadata = resolve;
