@@ -21,6 +21,10 @@ export default function Board() {
   const [kpi, setKpi] = useState({ line: false, bingo: false });
   const [firsts, setFirsts] = useState({ line: false, bingo: false });
 
+  // ---------------------------------------------------------
+  // REFRESH
+  // ---------------------------------------------------------
+
   async function refresh() {
     const data = await getBoard(groupId);
     setTiles(data as Tile[]);
@@ -44,6 +48,10 @@ export default function Board() {
       if (hasLine || hasBingo) checkAchievements(hasLine, hasBingo);
     }
   }, [tiles]);
+
+  // ---------------------------------------------------------
+  // ACHIEVEMENTS
+  // ---------------------------------------------------------
 
   async function checkAchievements(hasLine: boolean, hasBingo: boolean) {
     const { data: existing } = await supabase
@@ -85,93 +93,102 @@ export default function Board() {
     }
   }
 
-  // -----------------------------------------
-  // FUNÇÃO `upload()` CORRIGIDA COMPLETAMENTE
-  // -----------------------------------------
+  // ---------------------------------------------------------
+  // COMPRESSÃO DE VÍDEO NO BROWSER
+  // ---------------------------------------------------------
+
+  async function compressVideo(file: File): Promise<Blob> {
+    console.log("A comprimir vídeo…");
+
+    const video = document.createElement("video");
+    video.src = URL.createObjectURL(file);
+
+    await new Promise(resolve => {
+      video.onloadedmetadata = resolve;
+    });
+
+    const stream = video.captureStream();
+    const recorder = new MediaRecorder(stream, {
+      mimeType: "video/webm;codecs=vp9",
+      videoBitsPerSecond: 500_000 // 0.5 Mbps = compressão forte
+    });
+
+    const chunks: BlobPart[] = [];
+    recorder.ondataavailable = e => chunks.push(e.data);
+
+    recorder.start();
+
+    // Gravar apenas o tempo exacto do vídeo original
+    await new Promise(resolve => setTimeout(resolve, video.duration * 1000));
+
+    recorder.stop();
+
+    await new Promise(resolve => (recorder.onstop = resolve));
+
+    const blob = new Blob(chunks, { type: "video/webm" });
+
+    console.log("Original:", (file.size / 1024 / 1024).toFixed(2), "MB");
+    console.log("Comprimido:", (blob.size / 1024 / 1024).toFixed(2), "MB");
+
+    return blob;
+  }
+
+  // ---------------------------------------------------------
+  // UPLOAD FINAL
+  // ---------------------------------------------------------
 
   async function upload(id: string, file: File) {
     try {
       let path = '';
 
-      // ------------------------------
-      // 1. Upload directo de IMAGENS
-      // ------------------------------
+      // Caso 1 — imagens
       if (file.type.startsWith('image/')) {
         const ext = file.name.split('.').pop();
         path = `${groupId}/${id}-${Date.now()}.${ext}`;
 
-        const { error } = await supabase.storage.from('uploads')
+        const { error } = await supabase.storage
+          .from('uploads')
           .upload(path, file);
 
         if (error) throw error;
       }
 
-      // ------------------------------
-      // 2. Upload de VÍDEO com compressão pela API /api/compress
-      // ------------------------------
+      // Caso 2 — vídeos com compressão no browser
       else if (file.type.startsWith('video/')) {
+        const compressed = await compressVideo(file);
 
-        // Converter vídeo → Base64
-        const base64 = await fileToBase64(file);
+        path = `${groupId}/${id}-${Date.now()}.webm`;
 
-        // Enviar para o servidor Vercel para compressão
-        const response = await fetch('/api/compress', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            video: base64.replace(/^data:.*;base64,/, ''),
-            groupId,
-            tileId: id
-          })
-        });
+        const { error } = await supabase.storage
+          .from('uploads')
+          .upload(path, compressed);
 
-        const result = await response.json();
-
-        if (!response.ok || !result.filePath) {
-          console.error(result);
-          alert('Erro ao comprimir vídeo.');
-          return;
-        }
-
-        // Caminho devolvido pela API
-        path = result.filePath;
+        if (error) throw error;
       }
 
-      // ------------------------------
-      // 3. Tipo inválido
-      // ------------------------------
+      // Tipo inválido
       else {
-        alert('Tipo de ficheiro não suportado.');
+        alert("Tipo de ficheiro não suportado.");
         return;
       }
 
-      // ------------------------------
-      // 4. Actualizar progresso
-      // ------------------------------
+      // Actualizar progresso
       await supabase
         .from('progress')
         .update({ file_path: path, completed: true })
         .eq('id', id);
 
       await refresh();
+
     } catch (err) {
       console.error(err);
-      alert('Erro ao enviar ficheiro.');
+      alert("Erro ao enviar ficheiro.");
     }
   }
 
-  // Função utilitária para converter vídeo → Base64
-  function fileToBase64(file: File): Promise<string> {
-    return new Promise(resolve => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.readAsDataURL(file);
-    });
-  }
-
-  // -----------------------------------------
+  // ---------------------------------------------------------
   // RENDER
-  // -----------------------------------------
+  // ---------------------------------------------------------
 
   const doneCount = useMemo(() => tiles.filter((t) => t.file_path).length, [tiles]);
 
