@@ -14,6 +14,9 @@ type Tile = {
   file_path?: string | null;
 };
 
+// API da VPS fixa (sem .env)
+const API_URL = "https://217.182.169.59";
+
 export default function Board() {
   const groupId = localStorage.getItem('group_id')!;
   const groupName = localStorage.getItem('group_name')!;
@@ -88,29 +91,23 @@ export default function Board() {
   }
 
   // ---------------------------------------------------------
-  // UPLOAD FINAL (VPS)
+  // UPLOAD PARA A VPS (SEM ENV, SEM PORTA 3000)
   // ---------------------------------------------------------
   async function upload(id: string, file: File) {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL;
-      if (!apiUrl) {
-        alert('API_URL não configurada.');
-        return;
-      }
-
       const form = new FormData();
       form.append('file', file);
       form.append('group_id', groupId);
       form.append('progress_id', id);
 
-      const res = await fetch(`${apiUrl}/upload`, {
+      const res = await fetch(`${API_URL}/upload`, {
         method: 'POST',
         body: form,
       });
 
       if (!res.ok) {
         console.error(await res.text());
-        alert('Erro ao enviar o ficheiro.');
+        alert('Erro ao enviar ficheiro.');
         return;
       }
 
@@ -120,20 +117,16 @@ export default function Board() {
         return;
       }
 
-      // Construir URL final
-      const base = apiUrl.replace(/\/api\/?$/, '');
-      const finalUrl = `${base}${data.path}`;
-
-      // Actualizar progresso na BD
+      // Guarda APENAS o path vindo da API: /media/<grupo>/<ficheiro>
       await supabase
         .from('progress')
-        .update({ file_path: finalUrl, completed: true })
+        .update({ file_path: data.path, completed: true })
         .eq('id', id);
 
       await refresh();
-    } catch (error) {
-      console.error(error);
-      alert('Erro inesperado ao enviar ficheiro.');
+    } catch (err) {
+      console.error(err);
+      alert('Erro inesperado no upload.');
     }
   }
 

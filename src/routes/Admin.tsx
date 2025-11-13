@@ -10,6 +10,9 @@ export default function Admin() {
   const [board, setBoard] = useState<any[]>([]);
   const [achievements, setAchievements] = useState<any[]>([]);
 
+  // API fixa na VPS
+  const API_URL = "https://217.182.169.59";
+
   // --- LOGIN ADMIN ---
   async function login() {
     const { data, error } = await supabase
@@ -97,7 +100,7 @@ export default function Admin() {
     setBoard(combined);
   }
 
-  // --- MATRIZ PARA LINHAS/BINGO ---
+  // --- MATRIZ PARA O CHECK DE LINHA/BINGO ---
   function matrix() {
     const m = Array.from({ length: 4 }, () => Array(4).fill(false));
     board.forEach((a: any) => {
@@ -106,49 +109,39 @@ export default function Admin() {
     return m;
   }
 
-  // --- ABRIR FICHEIROS (VPS) ---
+  // --- ABRIR FICHEIRO (CORRIGIDO PARA A VPS) ---
   function openFile(path: string) {
-    try {
-      if (!path) {
-        alert('Sem ficheiro associado.');
-        return;
-      }
-
-      // Se já for URL absoluta, usa tal como está
-      if (path.startsWith('http://') || path.startsWith('https://')) {
-        window.open(path, '_blank');
-        return;
-      }
-
-      // Se for relativo (ex: /media/1/xxx.mp4), junta o host da API
-      const apiUrl = import.meta.env.VITE_API_URL || '';
-      const base = apiUrl.replace(/\/api\/?$/, '');
-      const finalUrl = `${base}${path}`;
-
-      window.open(finalUrl, '_blank');
-    } catch (err) {
-      console.error('Erro a abrir ficheiro:', err);
-      alert('Erro ao abrir o ficheiro.');
+    if (!path) {
+      alert('Sem ficheiro associado.');
+      return;
     }
+
+    // Se já for URL absoluta
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      window.open(path, '_blank');
+      return;
+    }
+
+    // Path relativo vindo do Supabase (ex: /media/<grupo>/<ficheiro>)
+    const finalUrl = `${API_URL}${path}`;
+    window.open(finalUrl, '_blank');
   }
 
   // --- REATIVIDADE EM TEMPO REAL ---
   useEffect(() => {
     if (!ok) return;
 
-    // Subscrição às conquistas
     const sub = supabase
       .channel('realtime_achievements')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'achievements' },
         () => {
-          loadAchievements(); // atualiza automaticamente
+          loadAchievements();
         }
       )
       .subscribe();
 
-    // Atualizações periódicas dos grupos
     const interval = setInterval(() => {
       loadGroups();
     }, 15000);
@@ -181,7 +174,7 @@ export default function Admin() {
   // --- DASHBOARD ADMIN ---
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      {/* 🏆 CONQUISTAS */}
+      {/* 🏅 CONQUISTAS */}
       <div
         className="card"
         style={{
@@ -192,54 +185,40 @@ export default function Admin() {
       >
         <h3 style={{ marginTop: 0 }}>🏅 Conquistas em Tempo Real</h3>
 
-        {/* --- Linhas --- */}
         <p><strong>Linhas:</strong></p>
         <ul style={{ listStyle: 'none', paddingLeft: 0 }}>
           {achievements
             .filter((a) => a.type === 'line')
             .map((a, i) => {
-              const colors = ['#FFD700', '#C0C0C0', '#CD7F32'];
               const medal = ['🥇', '🥈', '🥉'][i] || '🏅';
               return (
                 <li key={i} style={{ marginBottom: 6 }}>
-                  <strong style={{ color: colors[i] || '#333' }}>
-                    {medal} {i + 1}º
-                  </strong>{' '}
-                  — {a.group?.name || '— Sem nome —'} <br />
+                  <strong>{medal} {i + 1}º</strong> — {a.group?.name}
+                  <br />
                   <small style={{ color: 'gray' }}>
                     {new Date(a.created_at).toLocaleString()}
                   </small>
                 </li>
               );
             })}
-          {achievements.filter((a) => a.type === 'line').length === 0 && (
-            <li style={{ color: 'gray' }}>Nenhuma linha registada ainda.</li>
-          )}
         </ul>
 
-        {/* --- Bingos --- */}
         <p><strong>Bingos:</strong></p>
         <ul style={{ listStyle: 'none', paddingLeft: 0 }}>
           {achievements
             .filter((a) => a.type === 'bingo')
             .map((a, i) => {
-              const colors = ['#FFD700', '#C0C0C0', '#CD7F32'];
-              const trophy = ['🏆', '🥈', '🥉'][i] || '🎖️';
+              const medal = ['🏆', '🥈', '🥉'][i] || '🎖️';
               return (
                 <li key={i} style={{ marginBottom: 6 }}>
-                  <strong style={{ color: colors[i] || '#333' }}>
-                    {trophy} {i + 1}º
-                  </strong>{' '}
-                  — {a.group?.name || '— Sem nome —'} <br />
+                  <strong>{medal} {i + 1}º</strong> — {a.group?.name}
+                  <br />
                   <small style={{ color: 'gray' }}>
                     {new Date(a.created_at).toLocaleString()}
                   </small>
                 </li>
               );
             })}
-          {achievements.filter((a) => a.type === 'bingo').length === 0 && (
-            <li style={{ color: 'gray' }}>Nenhum bingo registado ainda.</li>
-          )}
         </ul>
       </div>
 
@@ -272,6 +251,8 @@ export default function Admin() {
       {selected && (
         <div className="card">
           <h3 style={{ marginTop: 0 }}>{selected.name}</h3>
+
+          {/* KPI */}
           {(() => {
             const { hasLine, hasBingo } = checkLines(matrix());
             const feitos = board.filter((a: any) => a.progress?.completed).length;
@@ -284,6 +265,7 @@ export default function Admin() {
             );
           })()}
 
+          {/* GRID DO GRUPO */}
           <div
             className="grid"
             style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}
