@@ -106,26 +106,29 @@ export default function Admin() {
     return m;
   }
 
-  // --- ABRIR FICHEIROS ---
-  async function openFile(path: string) {
+  // --- ABRIR FICHEIROS (VPS) ---
+  function openFile(path: string) {
     try {
-      const cleanPath = path
-        .replace(/^https?:\/\/[^/]+\/storage\/v1\/object\/public\/uploads\//, '')
-        .replace(/^uploads\//, '')
-        .trim();
-
-      const { data, error } = await supabase.storage
-        .from('uploads')
-        .createSignedUrl(cleanPath, 60 * 15);
-
-      if (error || !data?.signedUrl) {
-        alert('Erro ao abrir o ficheiro.');
+      if (!path) {
+        alert('Sem ficheiro associado.');
         return;
       }
 
-      window.open(data.signedUrl, '_blank');
+      // Se já for URL absoluta, usa tal como está
+      if (path.startsWith('http://') || path.startsWith('https://')) {
+        window.open(path, '_blank');
+        return;
+      }
+
+      // Se for relativo (ex: /media/1/xxx.mp4), junta o host da API
+      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const base = apiUrl.replace(/\/api\/?$/, '');
+      const finalUrl = `${base}${path}`;
+
+      window.open(finalUrl, '_blank');
     } catch (err) {
-      console.error('Erro inesperado:', err);
+      console.error('Erro a abrir ficheiro:', err);
+      alert('Erro ao abrir o ficheiro.');
     }
   }
 

@@ -88,153 +88,52 @@ export default function Board() {
   }
 
   // ---------------------------------------------------------
-  // DETECÇÃO DE iOS E SUPORTE A captureStream
-  // ---------------------------------------------------------
-  const isIOS =
-    typeof navigator !== 'undefined' &&
-    /iPad|iPhone|iPod/.test(navigator.userAgent);
-
-  const canCaptureStream =
-    typeof HTMLVideoElement !== 'undefined' &&
-    'captureStream' in HTMLVideoElement.prototype;
-
-  // ---------------------------------------------------------
-  // DETECTAR ORIENTAÇÃO DO VÍDEO
-  // ---------------------------------------------------------
-  function isPortraitVideo(video: HTMLVideoElement): boolean {
-    return video.videoHeight > video.videoWidth;
-  }
-
-  // ---------------------------------------------------------
-  // COMPRESSÃO (ANDROID / DESKTOP)
-  // ---------------------------------------------------------
-  async function compressVideo(file: File): Promise<Blob> {
-    const video = document.createElement("video");
-    video.src = URL.createObjectURL(file);
-    video.muted = true;
-    video.playsInline = true;
-
-    await new Promise<void>((resolve) => {
-      video.onloadedmetadata = () => {
-        video.play().catch(() => {});
-        resolve();
-      };
-    });
-
-    // Detectar orientação (apenas para debug — o MediaRecorder respeita)
-    const portrait = isPortraitVideo(video);
-    console.log("Vídeo em pé:", portrait);
-
-    // @ts-expect-error — existe nos browsers que suportam
-    const stream: MediaStream = video.captureStream();
-
-    const recorder = new MediaRecorder(stream, {
-      mimeType: "video/webm;codecs=vp9",
-      videoBitsPerSecond: 900_000, // mantém boa qualidade
-    });
-
-    const chunks: BlobPart[] = [];
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-
-    recorder.start();
-
-    await new Promise((resolve) =>
-      setTimeout(resolve, video.duration * 1000)
-    );
-
-    recorder.stop();
-
-    await new Promise((resolve) => (recorder.onstop = () => resolve(null)));
-
-    const blob = new Blob(chunks, { type: "video/webm" });
-
-    console.log("Original:", (file.size / 1024 / 1024).toFixed(2), "MB");
-    console.log("Comprimido:", (blob.size / 1024 / 1024).toFixed(2), "MB");
-
-    return blob;
-  }
-
-  // ---------------------------------------------------------
-  // UPLOAD FINAL
+  // UPLOAD FINAL (VPS)
   // ---------------------------------------------------------
   async function upload(id: string, file: File) {
     try {
-      let path = '';
-
-      // IMAGENS → upload directo
-      if (file.type.startsWith('image/')) {
-        const ext = file.name.split('.').pop();
-        path = `${groupId}/${id}-${Date.now()}.${ext}`;
-
-        const { error } = await supabase.storage
-          .from('uploads')
-          .upload(path, file);
-
-        if (error) throw error;
-      }
-
-      // VÍDEOS
-      else if (file.type.startsWith('video/')) {
-        const sizeMb = file.size / 1024 / 1024;
-
-        // iPhone → sem compressão, apenas <= 48 MB
-        if (isIOS || !canCaptureStream) {
-          if (sizeMb > 48) {
-            alert(
-              `O vídeo tem ${sizeMb.toFixed(
-                1
-              )} MB.\nNo iPhone só podes enviar vídeos até 48 MB.\nPor favor grava um vídeo mais curto.`
-            );
-            return;
-          }
-
-          const ext = file.name.split('.').pop() || "mp4";
-          path = `${groupId}/${id}-${Date.now()}.${ext}`;
-
-          const { error } = await supabase.storage
-            .from('uploads')
-            .upload(path, file);
-
-          if (error) throw error;
-        }
-
-        // ANDROID / DESKTOP → compressão apenas se > 48 MB
-        else {
-          let toUpload: Blob = file;
-
-          if (sizeMb > 48) {
-            toUpload = await compressVideo(file);
-          }
-
-          path = `${groupId}/${id}-${Date.now()}.webm`;
-
-          const { error } = await supabase.storage
-            .from('uploads')
-            .upload(path, toUpload);
-
-          if (error) throw error;
-        }
-      }
-
-      // Tipo inválido
-      else {
-        alert("Tipo de ficheiro não suportado.");
+      const apiUrl = import.meta.env.VITE_API_URL;
+      if (!apiUrl) {
+        alert('API_URL não configurada.');
         return;
       }
 
-      // Actualizar progresso
+      const form = new FormData();
+      form.append('file', file);
+      form.append('group_id', groupId);
+      form.append('progress_id', id);
+
+      const res = await fetch(`${apiUrl}/upload`, {
+        method: 'POST',
+        body: form,
+      });
+
+      if (!res.ok) {
+        console.error(await res.text());
+        alert('Erro ao enviar o ficheiro.');
+        return;
+      }
+
+      const data = await res.json();
+      if (!data.path) {
+        alert('Resposta inválida do servidor.');
+        return;
+      }
+
+      // Construir URL final
+      const base = apiUrl.replace(/\/api\/?$/, '');
+      const finalUrl = `${base}${data.path}`;
+
+      // Actualizar progresso na BD
       await supabase
         .from('progress')
-        .update({ file_path: path, completed: true })
+        .update({ file_path: finalUrl, completed: true })
         .eq('id', id);
 
       await refresh();
-
-    } catch (err) {
-      console.error(err);
-      alert("Erro ao enviar ficheiro.");
+    } catch (error) {
+      console.error(error);
+      alert('Erro inesperado ao enviar ficheiro.');
     }
   }
 
