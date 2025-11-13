@@ -24,7 +24,6 @@ export default function Board() {
   // ---------------------------------------------------------
   // REFRESH
   // ---------------------------------------------------------
-
   async function refresh() {
     const data = await getBoard(groupId);
     setTiles(data as Tile[]);
@@ -52,7 +51,6 @@ export default function Board() {
   // ---------------------------------------------------------
   // ACHIEVEMENTS
   // ---------------------------------------------------------
-
   async function checkAchievements(hasLine: boolean, hasBingo: boolean) {
     const { data: existing } = await supabase
       .from('achievements')
@@ -72,9 +70,7 @@ export default function Board() {
           type: 'line',
         });
       }
-      if (!alreadyLine) {
-        setFirsts((f) => ({ ...f, line: true }));
-      }
+      if (!alreadyLine) setFirsts((f) => ({ ...f, line: true }));
     }
 
     if (hasBingo) {
@@ -87,46 +83,70 @@ export default function Board() {
           type: 'bingo',
         });
       }
-      if (!alreadyBingo) {
-        setFirsts((f) => ({ ...f, bingo: true }));
-      }
+      if (!alreadyBingo) setFirsts((f) => ({ ...f, bingo: true }));
     }
   }
 
   // ---------------------------------------------------------
-  // COMPRESSÃO DE VÍDEO NO BROWSER
+  // DETECÇÃO DE iOS E SUPORTE A captureStream
   // ---------------------------------------------------------
+  const isIOS =
+    typeof navigator !== 'undefined' &&
+    /iPad|iPhone|iPod/.test(navigator.userAgent);
 
+  const canCaptureStream =
+    typeof HTMLVideoElement !== 'undefined' &&
+    'captureStream' in HTMLVideoElement.prototype;
+
+  // ---------------------------------------------------------
+  // DETECTAR ORIENTAÇÃO DO VÍDEO
+  // ---------------------------------------------------------
+  function isPortraitVideo(video: HTMLVideoElement): boolean {
+    return video.videoHeight > video.videoWidth;
+  }
+
+  // ---------------------------------------------------------
+  // COMPRESSÃO (ANDROID / DESKTOP)
+  // ---------------------------------------------------------
   async function compressVideo(file: File): Promise<Blob> {
-    console.log("A comprimir vídeo…");
-
     const video = document.createElement("video");
     video.src = URL.createObjectURL(file);
     video.muted = true;
-    video.play();
+    video.playsInline = true;
 
-    await new Promise(resolve => {
-      video.onloadedmetadata = resolve;
+    await new Promise<void>((resolve) => {
+      video.onloadedmetadata = () => {
+        video.play().catch(() => {});
+        resolve();
+      };
     });
 
-    const stream = (video as any).captureStream();
+    // Detectar orientação (apenas para debug — o MediaRecorder respeita)
+    const portrait = isPortraitVideo(video);
+    console.log("Vídeo em pé:", portrait);
+
+    // @ts-expect-error — existe nos browsers que suportam
+    const stream: MediaStream = video.captureStream();
 
     const recorder = new MediaRecorder(stream, {
       mimeType: "video/webm;codecs=vp9",
-      videoBitsPerSecond: 500_000 // 0.5 Mbps = compressão forte
+      videoBitsPerSecond: 900_000, // mantém boa qualidade
     });
 
     const chunks: BlobPart[] = [];
-    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
 
     recorder.start();
 
-    // Gravar apenas o tempo exacto do vídeo original
-    await new Promise(resolve => setTimeout(resolve, video.duration * 1000));
+    await new Promise((resolve) =>
+      setTimeout(resolve, video.duration * 1000)
+    );
 
     recorder.stop();
 
-    await new Promise(resolve => (recorder.onstop = resolve));
+    await new Promise((resolve) => (recorder.onstop = () => resolve(null)));
 
     const blob = new Blob(chunks, { type: "video/webm" });
 
@@ -139,12 +159,11 @@ export default function Board() {
   // ---------------------------------------------------------
   // UPLOAD FINAL
   // ---------------------------------------------------------
-
   async function upload(id: string, file: File) {
     try {
       let path = '';
 
-      // Caso 1 — imagens
+      // IMAGENS → upload directo
       if (file.type.startsWith('image/')) {
         const ext = file.name.split('.').pop();
         path = `${groupId}/${id}-${Date.now()}.${ext}`;
@@ -156,17 +175,47 @@ export default function Board() {
         if (error) throw error;
       }
 
-      // Caso 2 — vídeos com compressão no browser
+      // VÍDEOS
       else if (file.type.startsWith('video/')) {
-        const compressed = await compressVideo(file);
+        const sizeMb = file.size / 1024 / 1024;
 
-        path = `${groupId}/${id}-${Date.now()}.webm`;
+        // iPhone → sem compressão, apenas <= 48 MB
+        if (isIOS || !canCaptureStream) {
+          if (sizeMb > 48) {
+            alert(
+              `O vídeo tem ${sizeMb.toFixed(
+                1
+              )} MB.\nNo iPhone só podes enviar vídeos até 48 MB.\nPor favor grava um vídeo mais curto.`
+            );
+            return;
+          }
 
-        const { error } = await supabase.storage
-          .from('uploads')
-          .upload(path, compressed);
+          const ext = file.name.split('.').pop() || "mp4";
+          path = `${groupId}/${id}-${Date.now()}.${ext}`;
 
-        if (error) throw error;
+          const { error } = await supabase.storage
+            .from('uploads')
+            .upload(path, file);
+
+          if (error) throw error;
+        }
+
+        // ANDROID / DESKTOP → compressão apenas se > 48 MB
+        else {
+          let toUpload: Blob = file;
+
+          if (sizeMb > 48) {
+            toUpload = await compressVideo(file);
+          }
+
+          path = `${groupId}/${id}-${Date.now()}.webm`;
+
+          const { error } = await supabase.storage
+            .from('uploads')
+            .upload(path, toUpload);
+
+          if (error) throw error;
+        }
       }
 
       // Tipo inválido
@@ -192,8 +241,10 @@ export default function Board() {
   // ---------------------------------------------------------
   // RENDER
   // ---------------------------------------------------------
-
-  const doneCount = useMemo(() => tiles.filter((t) => t.file_path).length, [tiles]);
+  const doneCount = useMemo(
+    () => tiles.filter((t) => t.file_path).length,
+    [tiles]
+  );
 
   return (
     <>
