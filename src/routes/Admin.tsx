@@ -102,7 +102,7 @@ export default function Admin() {
 
   // --- MATRIZ PARA O CHECK DE LINHA/BINGO ---
   function matrix() {
-    const m = Array.from({ length: 4 }, () => Array(4).fill(false));
+    const m = Array.from({ length: 3 }, () => Array(3).fill(false));
     board.forEach((a: any) => {
       if (a.progress?.completed) m[a.row][a.col] = true;
     });
@@ -258,7 +258,7 @@ export default function Admin() {
             const feitos = board.filter((a: any) => a.progress?.completed).length;
             return (
               <div className="kpi" style={{ marginBottom: 8 }}>
-                <span className="pill">{feitos}/16 feitos</span>
+                <span className="pill">{feitos}/9 feitos</span>
                 <span className="pill">Linha: {hasLine ? '✅' : '—'}</span>
                 <span className="pill">Bingo: {hasBingo ? '🎉' : '—'}</span>
               </div>
@@ -268,7 +268,7 @@ export default function Admin() {
           {/* GRID DO GRUPO */}
           <div
             className="grid"
-            style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}
+            style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}
           >
             {board.map((a: any, i: number) => (
               <div

@@ -1,5 +1,5 @@
 export function checkLines(completed: boolean[][]) {
-  const n = 4;
+  const n = 3;
 
   // verifica linhas horizontais
   const rows = Array.from({ length: n }, (_, r) =>

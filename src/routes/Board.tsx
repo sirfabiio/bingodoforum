@@ -37,10 +37,10 @@ export default function Board() {
   }, []);
 
   useEffect(() => {
-    if (tiles.length === 16) {
-      const m = Array.from({ length: 4 }, (_, r) =>
-        Array.from({ length: 4 }, (_, c) => {
-          const found = tiles.find((t) => t.row === r && t.col === c);
+    if (tiles.length === 9) {
+      const m = Array.from({ length: 3 }, (_, r) =>
+        Array.from({ length: 3 }, (_, c) => {
+          const found = tiles.find(t => t.row === r && t.col === c);
           return !!found?.file_path;
         })
       );
@@ -142,7 +142,7 @@ export default function Board() {
     <>
       <div className="kpi">
         <span className="pill">{groupName}</span>
-        <span className="pill">{doneCount}/16</span>
+        <span className="pill">{doneCount}/9</span>
         {kpi.line && (
           <span className="pill">
             LINHA ✅ {firsts.line && <strong>🥇 (Primeira do Jogo!)</strong>}
