@@ -26,7 +26,7 @@ export default function GroupEntry() {
       <p style={{ color: 'var(--muted)' }}>Escolhe o nome do teu grupo (único).</p>
       <input
         className="input"
-        placeholder="ex.: Mesa do 3.º Ano"
+        placeholder="ex.: Grupo dos Alcoólicos Anónimos"
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
